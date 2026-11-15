@@ -1,0 +1,27 @@
+{
+  "name": "Good Day Whole Grain Crackers",
+  "brand": "Demo product",
+  "source": "prototype-fixture",
+  "servingBasis": "per 100 g",
+  "nutrition": {
+    "energyKcal": 472,
+    "proteinG": 7.4,
+    "totalSugarsG": 18.6,
+    "totalFatG": 21.2
+  },
+  "unavailableNutrition": [
+    "addedSugars",
+    "transFat",
+    "dietaryFibre",
+    "sodium"
+  ],
+  "ingredients": [
+    { "name": "Wheat flour", "classification": "base ingredient" },
+    { "name": "Sugar", "classification": "sweetener" },
+    { "name": "Palm oil", "classification": "fat source" },
+    { "name": "INS 500(ii)", "classification": "raising agent" },
+    { "name": "INS 503(ii)", "classification": "raising agent" }
+  ],
+  "declaredAllergens": ["wheat"],
+  "precautionaryStatements": []
+}
