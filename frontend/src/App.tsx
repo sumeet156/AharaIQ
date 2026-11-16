@@ -1,24 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Html5Qrcode } from "html5-qrcode";
 import {
-  ArrowRight, BarChart3, Camera, Check, ChevronDown, CircleAlert,
-  FileImage, Leaf, LoaderCircle, Search, ShieldCheck, Sparkles, Upload, X,
+  ArrowRight, BarChart3, Camera, Check, CircleAlert,
+  Leaf, LoaderCircle, Search, ShieldCheck, Sparkles, Upload, X,
 } from "lucide-react";
-
-type Nutrition = { label: string; value: string; unit: string; tone?: string };
-
-const nutrition: Nutrition[] = [
-  { label: "Energy", value: "472", unit: "kcal / 100 g", tone: "orange" },
-  { label: "Protein", value: "7.4", unit: "g / 100 g", tone: "green" },
-  { label: "Total sugars", value: "18.6", unit: "g / 100 g", tone: "yellow" },
-  { label: "Total fat", value: "21.2", unit: "g / 100 g", tone: "red" },
-];
-
-const ingredients = [
-  ["Wheat flour", "Base ingredient"],
-  ["Sugar", "Sweetener"],
-  ["Palm oil", "Fat source"],
-  ["Raising agents (INS 500(ii), INS 503(ii))", "Additive"],
-];
 
 type OcrMetadata = {
   filename: string | null;
@@ -31,6 +16,20 @@ type OcrMetadata = {
 
 const OCR_ENDPOINT = `${import.meta.env.VITE_OCR_URL ?? "http://127.0.0.1:8000"}/ocr`;
 const PARSE_ENDPOINT = `${import.meta.env.VITE_OCR_URL ?? "http://127.0.0.1:8000"}/parse`;
+const PRODUCT_API = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080";
+
+type ProductResult = {
+  found: boolean;
+  barcode: string;
+  name: string | null;
+  brand: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  ingredients: string | null;
+  nutritionFacts: Array<{ field: string; value: number; unit: string; basis: string }>;
+  missingFields: string[];
+  source: string;
+};
 
 type ParsedResult = {
   rawText: string;
@@ -59,6 +58,65 @@ function App() {
   const [parsedResult, setParsedResult] = useState<ParsedResult | null>(null);
   const [parseLoading, setParseLoading] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [productResult, setProductResult] = useState<ProductResult | null>(null);
+  const [productLoading, setProductLoading] = useState(false);
+  const [productError, setProductError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+
+  const lookupProduct = async (value = barcode) => {
+    const trimmed = value.trim();
+    setSearched(true);
+    setProductResult(null);
+    setProductError(null);
+    if (!/^\d{8,14}$/.test(trimmed)) {
+      setProductError("Enter a barcode containing 8 to 14 digits.");
+      return;
+    }
+    setProductLoading(true);
+    try {
+      const response = await fetch(`${PRODUCT_API}/api/products/${encodeURIComponent(trimmed)}`);
+      const body = await response.json() as ProductResult | { message?: string };
+      if (!response.ok) {
+        throw new Error(("message" in body && body.message) || "Product lookup failed.");
+      }
+      const product = body as ProductResult;
+      if (!product.found) {
+        setProductError("No product was found for this barcode in Open Food Facts.");
+      } else {
+        setProductResult(product);
+      }
+    } catch (error) {
+      setProductError(error instanceof Error ? error.message : "Could not reach the product lookup service.");
+    } finally {
+      setProductLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!scannerOpen) return;
+    const scanner = new Html5Qrcode("barcode-reader");
+    scannerRef.current = scanner;
+    scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 280, height: 120 } },
+      (decodedText) => {
+        setBarcode(decodedText);
+        setScannerOpen(false);
+        void lookupProduct(decodedText);
+      },
+      () => undefined,
+    ).catch(() => {
+      setProductError("Camera access was unavailable. Enter the barcode manually instead.");
+      setScannerOpen(false);
+    });
+    return () => {
+      if (scannerRef.current) {
+        void scannerRef.current.stop().then(() => scannerRef.current?.clear());
+        scannerRef.current = null;
+      }
+    };
+  }, [scannerOpen]);
 
   const onImage = (file?: File) => {
     if (!file) return;
@@ -148,8 +206,10 @@ function App() {
             <div className="search-box">
               <Search size={20} />
               <input value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Search product or enter barcode" aria-label="Product or barcode" />
-              <button onClick={() => setSearched(true)} aria-label="Search"><ArrowRight size={19} /></button>
+              <button className="scan-button" onClick={() => setScannerOpen(true)} aria-label="Scan barcode with camera"><Camera size={17} /></button>
+              <button onClick={() => void lookupProduct()} aria-label="Search"><ArrowRight size={19} /></button>
             </div>
+            {scannerOpen && <div className="scanner-panel"><div id="barcode-reader" /><button className="text-button" onClick={() => setScannerOpen(false)}>Close scanner</button></div>}
             <p className="hint"><ShieldCheck size={14} /> No account needed · Your scans stay private</p>
           </div>
           <div className="hero-art" aria-label="Illustration of a packaged snack">
@@ -163,7 +223,7 @@ function App() {
           <div className="section-intro"><p className="eyebrow">Start an analysis</p><h2>Choose your way in</h2></div>
           <div className="action-grid">
             <button className="action-card" onClick={() => document.getElementById("upload")?.click()}><span className="action-icon orange-bg"><Camera /></span><span><b>Scan a label</b><small>Upload a photo of the nutrition label</small></span><ArrowRight /></button>
-            <button className="action-card" onClick={() => setSearched(true)}><span className="action-icon green-bg"><Search /></span><span><b>Look up a product</b><small>Search by barcode or product name</small></span><ArrowRight /></button>
+            <button className="action-card" onClick={() => document.querySelector<HTMLInputElement>(".search-box input")?.focus()}><span className="action-icon green-bg"><Search /></span><span><b>Look up a product</b><small>Search by barcode</small></span><ArrowRight /></button>
           </div>
           <input id="upload" hidden type="file" accept="image/jpeg,image/png" onChange={(e) => onImage(e.target.files?.[0])} />
           {image && <div className="upload-preview"><img src={image} alt="Selected food label" /><div><b>{ocrLoading ? "Reading label…" : "Label uploaded"}</b><p>{ocrLoading ? `Uploading and extracting text (${uploadProgress}%)` : "Review the extracted text below."}</p></div><button onClick={() => { setImage(null); setOcrText(""); setConfirmedText(null); setOcrMetadata(null); setOcrError(null); setParsedResult(null); setParseError(null); }} aria-label="Remove image"><X size={18} /></button></div>}
@@ -187,10 +247,10 @@ function App() {
         </section>}
 
         {searched && <section className="analysis-section">
-          <div className="analysis-heading"><div><p className="eyebrow">Example analysis</p><h2>Good Day Whole Grain Crackers</h2><p className="muted">Sample data · Per 100 g serving</p></div><span className="status-pill"><span /> Partial data</span></div>
-          <div className="notice"><CircleAlert size={18} /><span><b>Read this first:</b> This is an informational interpretation, not medical advice. Some label fields were not available.</span></div>
-          <div className="analysis-grid"><div className="panel nutrition-panel"><div className="panel-title"><span><BarChart3 size={18} /> Nutrition snapshot</span><ChevronDown size={18} /></div><div className="nutrition-grid">{nutrition.map((item) => <div className="nutrition-item" key={item.label}><span className={`nutrition-value ${item.tone}`}>{item.value}</span><b>{item.unit}</b><small>{item.label}</small></div>)}</div><div className="missing"><CircleAlert size={15} /> Added sugars and trans fat were not declared</div></div>
-            <div className="panel"><div className="panel-title"><span><Leaf size={18} /> Ingredient highlights</span><ChevronDown size={18} /></div><div className="ingredient-list">{ingredients.map(([name, type]) => <div className="ingredient" key={name}><span className="ingredient-dot" /><span><b>{name}</b><small>{type}</small></span></div>)}</div><button className="text-button">See all ingredients <ArrowRight size={15} /></button></div></div>
+          <div className="analysis-heading"><div><p className="eyebrow">Product lookup</p><h2>{productLoading ? "Looking up product…" : productResult?.name ?? "Barcode result"}</h2><p className="muted">{productResult ? `${productResult.brand ?? "Brand unavailable"} · ${productResult.barcode}` : "Open Food Facts data will appear here"}</p></div>{productResult && <span className="status-pill"><span /> Partial data is possible</span>}</div>
+          {productError && <div className="ocr-error"><CircleAlert size={17} />{productError}</div>}
+          {productLoading && <div className="ocr-loading"><LoaderCircle className="spin" size={25} /> Querying Open Food Facts through the Java backend…</div>}
+          {productResult && <div className="product-layout"><div className="panel product-summary">{productResult.imageUrl ? <img src={productResult.imageUrl} alt={`${productResult.name ?? "Product"} package`} /> : <div className="product-image-placeholder"><Leaf size={30} /></div>}<div><b>{productResult.name ?? "Name unavailable"}</b><small>{productResult.category ?? "Category unavailable"}</small><small>Source: {productResult.source}</small></div></div><div className="panel"><div className="panel-title"><span><BarChart3 size={18} /> Available nutrition</span></div>{productResult.nutritionFacts.length ? <div className="parsed-list">{productResult.nutritionFacts.map((fact) => <div className="parsed-row" key={fact.field}><span><b>{fact.field.replace(/_/g, " ")}</b><small>{fact.basis.replace(/_/g, " ")}</small></span><strong>{fact.value} {fact.unit}</strong></div>)}</div> : <p className="muted">No nutrition values available.</p>}<div className="missing">Missing: {productResult.missingFields.join(", ") || "none identified"}</div></div><div className="panel"><div className="panel-title"><span><Leaf size={18} /> Ingredients</span></div><p className="product-ingredients">{productResult.ingredients ?? "Ingredients unavailable."}</p></div></div>}
         </section>}
 
         <section className="trust-section" id="how-it-works"><div className="section-intro"><p className="eyebrow">Built for clarity</p><h2>Answers, not alarm.</h2><p className="muted wide">AharaIQ helps you understand labels without turning food into a pass-or-fail test.</p></div><div className="trust-grid"><div><Sparkles className="trust-icon" /><h3>Explainable by design</h3><p>Every insight links back to a label value or ingredient. No mystery scores.</p></div><div><ShieldCheck className="trust-icon" /><h3>Honest about gaps</h3><p>Missing information stays missing. We show what we know and what we don’t.</p></div><div><Leaf className="trust-icon" /><h3>Made for Indian labels</h3><p>Understand INS codes, serving sizes and the details that matter locally.</p></div></div></section>

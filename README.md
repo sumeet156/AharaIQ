@@ -9,7 +9,7 @@ converted to zero.
 
 ```text
 frontend/    React + Vite + TypeScript dashboard
-backend/     Java 21 + Spring Boot API boundary
+backend/     Java 21 + Spring Boot product lookup API
 ocr-service/ Python FastAPI + Tesseract OCR service
 database/    Versioned MySQL schema
 docs/        Architecture and API notes
@@ -28,7 +28,7 @@ Open `http://127.0.0.1:5173`. The upload control sends images directly to the
 OCR service, displays an editable review text area, and sends confirmed text
 to the deterministic label parser.
 
-## Run the Java API
+## Run the Java product API
 
 Install Java 21 and Maven, then:
 
@@ -38,6 +38,28 @@ mvn spring-boot:run
 ```
 
 The health endpoint is `GET http://localhost:8080/api/health`.
+Barcode lookup is:
+
+```text
+GET http://localhost:8080/api/products/{barcode}
+```
+
+The backend validates 8–14 digit barcodes and calls Open Food Facts with a
+descriptive `User-Agent`. It returns `found: false` for an unavailable product,
+keeps unavailable fields as `null`, and reports absent nutrition fields in
+`missingFields`. External service failures return `502`; invalid barcodes
+return `400`.
+
+The frontend defaults to `http://127.0.0.1:8080`. To use another backend port:
+
+```powershell
+$env:VITE_API_URL = "http://127.0.0.1:8081"
+npx vite --host 127.0.0.1
+```
+
+The product search camera button uses `html5-qrcode`. Camera permission is
+required, and manual barcode entry remains available when camera scanning is
+not supported.
 
 ## Install and run the OCR service
 
@@ -112,6 +134,22 @@ Run OCR tests with:
 
 ```powershell
 python -m pytest
+```
+
+Run Java API tests with:
+
+```powershell
+cd "C:\MCA_2026-28\01_Semester_1\Mini_Project_1A\AharaIQ\backend"
+mvn test
+```
+
+The current product lookup test uses mocked Open Food Facts responses for
+success, not-found, invalid barcode, and external failure cases. A live
+verification can use a known barcode:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/api/products/3017620422003 |
+  ConvertTo-Json -Depth 8
 ```
 
 ## Design principles
