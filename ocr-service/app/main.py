@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 from pytesseract import Output
 from pytesseract.pytesseract import TesseractNotFoundError
+from .parser.models import ParseRequest, ParseResponse
+from .parser.parser import parse_label
 
 app = FastAPI(title="AharaIQ OCR Service", version="0.1.0")
 app.add_middleware(
@@ -114,3 +116,8 @@ async def extract_text(file: UploadFile = File(...)) -> dict[str, Any]:
             "averageConfidence": confidence,
         },
     }
+
+
+@app.post("/parse", response_model=ParseResponse)
+def parse_text(request: ParseRequest) -> ParseResponse:
+    return parse_label(request.rawText, request.source)

@@ -30,6 +30,21 @@ type OcrMetadata = {
 };
 
 const OCR_ENDPOINT = `${import.meta.env.VITE_OCR_URL ?? "http://127.0.0.1:8000"}/ocr`;
+const PARSE_ENDPOINT = `${import.meta.env.VITE_OCR_URL ?? "http://127.0.0.1:8000"}/parse`;
+
+type ParsedResult = {
+  rawText: string;
+  source: "ocr" | "reviewed";
+  nutritionFacts: Array<{ field: string; label: string; originalValue: string; normalizedValue: number; unit: string; basis: string | null; confidence: string; reviewRequired: boolean }>;
+  ingredients: Array<{ originalText: string; normalizedName: string; order: number }>;
+  additives: Array<{ originalText: string; code: string; name: string | null; category: string | null; matchStatus: string }>;
+  declaredAllergens: Array<{ name: string; originalText: string }>;
+  possibleIngredientAllergens: Array<{ name: string; originalText: string }>;
+  precautionaryStatements: Array<{ name: string; originalText: string }>;
+  missingFields: string[];
+  reviewWarnings: string[];
+  parsingStatus: string;
+};
 
 function App() {
   const [barcode, setBarcode] = useState("");
@@ -41,6 +56,9 @@ function App() {
   const [ocrLoading, setOcrLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [ocrError, setOcrError] = useState<string | null>(null);
+  const [parsedResult, setParsedResult] = useState<ParsedResult | null>(null);
+  const [parseLoading, setParseLoading] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
 
   const onImage = (file?: File) => {
     if (!file) return;
@@ -57,6 +75,8 @@ function App() {
     setConfirmedText(null);
     setOcrMetadata(null);
     setOcrError(null);
+    setParsedResult(null);
+    setParseError(null);
     setOcrLoading(true);
     setUploadProgress(0);
 
@@ -87,6 +107,28 @@ function App() {
     const formData = new FormData();
     formData.append("file", file);
     request.send(formData);
+  };
+
+  const confirmText = async () => {
+    setConfirmedText(ocrText);
+    setParseLoading(true);
+    setParseError(null);
+    try {
+      const response = await fetch(PARSE_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rawText: ocrText, source: "reviewed" }),
+      });
+      if (!response.ok) {
+        const error = await response.json() as { detail?: string };
+        throw new Error(error.detail ?? "The label parser returned an error.");
+      }
+      setParsedResult(await response.json() as ParsedResult);
+    } catch (error) {
+      setParseError(error instanceof Error ? error.message : "Could not parse the reviewed text.");
+    } finally {
+      setParseLoading(false);
+    }
   };
 
   return (
@@ -124,13 +166,24 @@ function App() {
             <button className="action-card" onClick={() => setSearched(true)}><span className="action-icon green-bg"><Search /></span><span><b>Look up a product</b><small>Search by barcode or product name</small></span><ArrowRight /></button>
           </div>
           <input id="upload" hidden type="file" accept="image/jpeg,image/png" onChange={(e) => onImage(e.target.files?.[0])} />
-          {image && <div className="upload-preview"><img src={image} alt="Selected food label" /><div><b>{ocrLoading ? "Reading label…" : "Label uploaded"}</b><p>{ocrLoading ? `Uploading and extracting text (${uploadProgress}%)` : "Review the extracted text below."}</p></div><button onClick={() => { setImage(null); setOcrText(""); setConfirmedText(null); setOcrMetadata(null); setOcrError(null); }} aria-label="Remove image"><X size={18} /></button></div>}
+          {image && <div className="upload-preview"><img src={image} alt="Selected food label" /><div><b>{ocrLoading ? "Reading label…" : "Label uploaded"}</b><p>{ocrLoading ? `Uploading and extracting text (${uploadProgress}%)` : "Review the extracted text below."}</p></div><button onClick={() => { setImage(null); setOcrText(""); setConfirmedText(null); setOcrMetadata(null); setOcrError(null); setParsedResult(null); setParseError(null); }} aria-label="Remove image"><X size={18} /></button></div>}
           {ocrError && <div className="ocr-error"><CircleAlert size={17} />{ocrError}</div>}
         </section>
 
         {image && (ocrLoading || ocrText || ocrError) && <section className="review-section">
           <div className="analysis-heading"><div><p className="eyebrow">OCR review</p><h2>Check the extracted label text</h2><p className="muted">Correct anything the camera or label layout made unclear before continuing.</p></div>{ocrLoading && <span className="status-pill"><LoaderCircle className="spin" size={14} /> Reading label</span>}</div>
-          {ocrLoading ? <div className="ocr-loading"><LoaderCircle className="spin" size={25} /><span>Preprocessing image and running Tesseract OCR…</span></div> : ocrText && <><label className="review-label" htmlFor="ocr-text">Extracted text</label><textarea id="ocr-text" value={ocrText} onChange={(event) => { setOcrText(event.target.value); setConfirmedText(null); }} rows={11} /><div className="review-actions"><button className="primary-button" onClick={() => setConfirmedText(ocrText)}><Check size={16} /> Confirm corrected text</button>{ocrMetadata && <small>{ocrMetadata.width} × {ocrMetadata.height}px · {Math.round(ocrMetadata.bytes / 1024)} KB · {ocrMetadata.averageConfidence === null ? "Confidence unavailable" : `${ocrMetadata.averageConfidence}% average confidence`}</small>}</div>{confirmedText !== null && <div className="confirmed"><Check size={16} /> Text confirmed. Nutrition parsing will use this reviewed text in the next milestone.</div>}</>}
+          {ocrLoading ? <div className="ocr-loading"><LoaderCircle className="spin" size={25} /><span>Preprocessing image and running Tesseract OCR…</span></div> : ocrText && <><label className="review-label" htmlFor="ocr-text">Extracted text <span className="unreviewed-tag">Unreviewed OCR</span></label><textarea id="ocr-text" value={ocrText} onChange={(event) => { setOcrText(event.target.value); setConfirmedText(null); setParsedResult(null); }} rows={11} /><div className="review-actions"><button className="primary-button" onClick={confirmText} disabled={parseLoading}><Check size={16} /> {parseLoading ? "Parsing label…" : "Confirm and parse text"}</button>{ocrMetadata && <small>{ocrMetadata.width} × {ocrMetadata.height}px · {Math.round(ocrMetadata.bytes / 1024)} KB · {ocrMetadata.averageConfidence === null ? "Confidence unavailable" : `${ocrMetadata.averageConfidence}% average confidence`}</small>}</div>{confirmedText !== null && !parseLoading && !parseError && <div className="confirmed"><Check size={16} /> Text confirmed and parsed. Results below are based on your reviewed text.</div>}{parseError && <div className="ocr-error"><CircleAlert size={17} />{parseError}</div>}</>}
+        </section>}
+
+        {parsedResult && <section className="parsed-section">
+          <div className="analysis-heading"><div><p className="eyebrow">Structured label</p><h2>What we found</h2><p className="muted">Parsed from user-reviewed text · No health score applied</p></div><span className="status-pill"><span /> {parsedResult.parsingStatus.replace("_", " ")}</span></div>
+          {parsedResult.reviewWarnings.length > 0 && <div className="notice"><CircleAlert size={18} /><span>{parsedResult.reviewWarnings.join(" ")}</span></div>}
+          <div className="parsed-grid">
+            <div className="panel"><div className="panel-title"><span><BarChart3 size={18} /> Nutrition information</span></div>{parsedResult.nutritionFacts.length ? <div className="parsed-list">{parsedResult.nutritionFacts.map((fact) => <div className="parsed-row" key={fact.field}><span><b>{fact.label}</b><small>{fact.originalValue}{fact.basis ? ` · ${fact.basis.replace(/_/g, " ")}` : ""}</small></span><strong>{fact.normalizedValue} {fact.unit}{fact.reviewRequired ? " · review" : ""}</strong></div>)}</div> : <p className="muted">No nutrition values identified.</p>}<div className="missing">Missing: {parsedResult.missingFields.join(", ") || "none identified"}</div></div>
+            <div className="panel"><div className="panel-title"><span><Leaf size={18} /> Ingredients</span></div>{parsedResult.ingredients.length ? <div className="ingredient-list">{parsedResult.ingredients.map((ingredient) => <div className="ingredient" key={`${ingredient.order}-${ingredient.originalText}`}><span className="ingredient-dot" /><span><b>{ingredient.originalText}</b><small>Normalized: {ingredient.normalizedName}</small></span></div>)}</div> : <p className="muted">No ingredients section identified.</p>}</div>
+            <div className="panel"><div className="panel-title"><span><Sparkles size={18} /> Additives</span></div>{parsedResult.additives.length ? <div className="ingredient-list">{parsedResult.additives.map((additive) => <div className="ingredient" key={additive.code}><span className="ingredient-dot" /><span><b>{additive.originalText} · {additive.name ?? "Unknown additive"}</b><small>{additive.category ?? "No local category"} · {additive.matchStatus}</small></span></div>)}</div> : <p className="muted">No INS/additive codes identified.</p>}</div>
+            <div className="panel"><div className="panel-title"><span><ShieldCheck size={18} /> Allergens</span></div><div className="allergen-group"><b>Declared</b><span>{parsedResult.declaredAllergens.map((item) => item.name).join(", ") || "None identified"}</span><b>Possible ingredient matches</b><span>{parsedResult.possibleIngredientAllergens.map((item) => item.name).join(", ") || "None identified"}</span><b>Precautionary</b><span>{parsedResult.precautionaryStatements.map((item) => `May contain ${item.name}`).join(", ") || "None identified"}</span></div><div className="missing">Absence of a finding does not prove allergen-free.</div></div>
+          </div>
         </section>}
 
         {searched && <section className="analysis-section">

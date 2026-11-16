@@ -25,7 +25,8 @@ npx vite --host 127.0.0.1
 ```
 
 Open `http://127.0.0.1:5173`. The upload control sends images directly to the
-OCR service and displays an editable review text area.
+OCR service, displays an editable review text area, and sends confirmed text
+to the deterministic label parser.
 
 ## Run the Java API
 
@@ -85,6 +86,27 @@ Successful response:
 
 The endpoint returns `400` for invalid image bytes, `413` for files over 5 MB,
 `415` for non-JPG/PNG uploads, and `503` when Tesseract is unavailable.
+
+### Label parser API
+
+The parser is intentionally separate from OCR so reviewed text can be parsed
+again without uploading the image:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/parse `
+  -H "Content-Type: application/json" `
+  -d '{\"rawText\":\"Nutrition Information per 100 g Protein 10.59 g Ingredients: wheat flour, sugar. Contains wheat.\",\"source\":\"reviewed\"}'
+```
+
+The response contains the original text, nutrition facts with original and
+normalized values, ingredient order, additive matches, allergen categories,
+missing fields, review warnings, and parsing status. Known additive metadata is
+maintained in `ocr-service/app/data/additives.json`; unknown INS codes remain
+unknown and are not labelled harmful.
+
+The UI labels OCR text as **Unreviewed OCR**. Parsing starts only after the user
+confirms or edits the text, and the resulting cards are labelled as based on
+reviewed text.
 
 Run OCR tests with:
 

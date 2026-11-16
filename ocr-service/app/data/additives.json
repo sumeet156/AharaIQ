@@ -1,0 +1,11 @@
+{
+  "202": { "name": "Potassium sorbate", "category": "Preservative" },
+  "211": { "name": "Sodium benzoate", "category": "Preservative" },
+  "322": { "name": "Lecithins", "category": "Emulsifier" },
+  "330": { "name": "Citric acid", "category": "Acidity regulator" },
+  "500": { "name": "Sodium carbonates", "category": "Raising agent" },
+  "500(ii)": { "name": "Sodium bicarbonate", "category": "Raising agent" },
+  "503": { "name": "Ammonium carbonates", "category": "Raising agent" },
+  "503(ii)": { "name": "Ammonium bicarbonate", "category": "Raising agent" },
+  "621": { "name": "Monosodium glutamate", "category": "Flavour enhancer" }
+}
