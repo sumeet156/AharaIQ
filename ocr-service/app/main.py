@@ -271,6 +271,28 @@ def _nutrition_rows(result: OcrResult) -> list[dict[str, Any]]:
     return rows
 
 
+def _ocr_evidence(result: OcrResult) -> dict[str, Any]:
+    return {
+        "lines": [
+            {
+                "text": line.text,
+                "words": [
+                    {
+                        "text": word.text,
+                        "confidence": word.confidence,
+                        "left": word.left,
+                        "top": word.top,
+                        "width": word.width,
+                        "height": word.height,
+                    }
+                    for word in line.words
+                ],
+            }
+            for line in result.lines
+        ]
+    }
+
+
 def extract_best_ocr(
     candidates: list[PreparedImage],
 ) -> tuple[str, float | None, PreparedImage, OcrResult]:
@@ -339,6 +361,7 @@ async def extract_text(file: UploadFile = File(...)) -> dict[str, Any]:
             "wordCount": selected_result.word_count,
             "lineCount": selected_result.line_count,
             "nutritionRows": _nutrition_rows(selected_result),
+            "ocrEvidence": _ocr_evidence(selected_result),
         },
     }
 
