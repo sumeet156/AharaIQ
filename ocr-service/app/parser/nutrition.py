@@ -10,8 +10,8 @@ FIELD_PATTERNS: list[tuple[str, str, str]] = [
     ("saturated_fat", "Saturated fat", r"saturated\s+(?:fats?|fatty\s+acids?)"),
     ("trans_fat", "Trans fat", r"trans\s+(?:fats?|fatty\s+acids?)"),
     ("dietary_fibre", "Dietary fibre", r"(?:dietary\s+)?fib(?:re|er)"),
-    ("total_sugars", "Total sugars", r"(?:total\s+)?sugars?"),
-    ("total_fat", "Total fat", r"(?:total\s+)?fats?"),
+    ("total_sugars", "Total sugars", r"total\s+sugars?"),
+    ("total_fat", "Total fat", r"total\s+fats?"),
     ("sodium", "Sodium", r"sodium"),
     ("salt", "Salt", r"salt"),
 ]
@@ -44,36 +44,34 @@ def _normalized(value: float, unit: str) -> tuple[float, str]:
 
 def parse_nutrition(text: str) -> list[NutritionFact]:
     facts: list[NutritionFact] = []
-    seen: set[str] = set()
     basis = _basis(text)
     for field, label, pattern in FIELD_PATTERNS:
-        if field in seen:
-            continue
         expression = re.compile(
-            rf"(?P<label>{pattern})\s*[:\-]?\s*(?:\([^)]+\)\s*)?"
+            rf"(?<!\w)(?P<label>{pattern})(?!\w)\s*[:\-]?\s*(?:\([^)]+\)\s*)?"
             rf"{NUMBER}\s*{UNIT}",
             re.IGNORECASE,
         )
-        match = expression.search(text)
-        if not match:
+        matches = list(expression.finditer(text))
+        if not matches:
             continue
-        raw_number = match.group("number")
-        value = float(raw_number.replace(",", "."))
-        original = match.group(0).strip()
-        normalized_value, normalized_unit = _normalized(value, match.group("unit"))
-        review_required = "," in raw_number and "." in raw_number
-        facts.append(
-            NutritionFact(
-                field=field,
-                label=label,
-                originalValue=original,
-                value=value,
-                normalizedValue=round(normalized_value, 6),
-                unit=match.group("unit").lower(),
-                basis=basis,
-                confidence="review" if review_required else "high",
-                reviewRequired=review_required,
+        duplicate_match = len(matches) > 1
+        for match in matches:
+            raw_number = match.group("number")
+            value = float(raw_number.replace(",", "."))
+            original = match.group(0).strip()
+            normalized_value, normalized_unit = _normalized(value, match.group("unit"))
+            review_required = duplicate_match or ("," in raw_number and "." in raw_number)
+            facts.append(
+                NutritionFact(
+                    field=field,
+                    label=label,
+                    originalValue=original,
+                    value=value,
+                    normalizedValue=round(normalized_value, 6),
+                    unit=match.group("unit").lower(),
+                    basis=basis,
+                    confidence="review" if review_required else "high",
+                    reviewRequired=review_required,
+                )
             )
-        )
-        seen.add(field)
     return facts

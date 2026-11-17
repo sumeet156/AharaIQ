@@ -100,7 +100,11 @@ Successful response:
     "width": 1200,
     "height": 900,
     "bytes": 245678,
-    "preprocessing": "grayscale, denoise, Otsu threshold",
+    "originalSha256": "…",
+    "preprocessing": "resize, grayscale, denoise, deskew, adaptive threshold",
+    "scale": 1.33,
+    "deskewAngle": -2.5,
+    "candidateCount": 2,
     "averageConfidence": 87.42
   }
 }
@@ -108,6 +112,25 @@ Successful response:
 
 The endpoint returns `400` for invalid image bytes, `413` for files over 5 MB,
 `415` for non-JPG/PNG uploads, and `503` when Tesseract is unavailable.
+
+### OCR accuracy improvements
+
+The original upload bytes are never overwritten or persisted; the browser
+continues to preview the original image, and the API returns its SHA-256 hash
+and original dimensions for provenance. OCR preprocessing creates in-memory
+candidates using:
+
+- Cubic upscaling for small images, capped at three times the source size.
+- Grayscale conversion and non-local-means denoising.
+- Bounded projection-profile deskew for small rotations.
+- Adaptive Gaussian thresholding and Otsu thresholding.
+- Tesseract OCR on both candidates, selecting the non-empty result with the
+  strongest confidence/text signal.
+
+The selected strategy is reported in `metadata.preprocessing`. OCR text is
+returned with line breaks where Tesseract detects separate text lines instead
+of being silently flattened. The result remains reviewable because preprocessing
+does not infer or correct nutrition values.
 
 ### Label parser API
 
@@ -135,6 +158,10 @@ Run OCR tests with:
 ```powershell
 python -m pytest
 ```
+
+The preprocessing tests cover small-image upscaling, candidate generation,
+rotated-image deskewing, and invalid image bytes. The OCR and parser regression
+tests remain part of the same suite.
 
 Run Java API tests with:
 

@@ -1,9 +1,9 @@
 import os
+import hashlib
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import pytesseract
 
@@ -14,6 +14,7 @@ from pytesseract import Output
 from pytesseract.pytesseract import TesseractNotFoundError
 from .parser.models import ParseRequest, ParseResponse
 from .parser.parser import parse_label
+from .preprocessing import PreparedImage, prepare_candidates
 
 app = FastAPI(title="AharaIQ OCR Service", version="0.1.0")
 app.add_middleware(
@@ -52,36 +53,47 @@ def health() -> dict[str, str | bool]:
     }
 
 
-def preprocess_image(content: bytes) -> tuple[np.ndarray, tuple[int, int]]:
-    image = cv2.imdecode(np.frombuffer(content, dtype=np.uint8), cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError("The uploaded file is not a valid image.")
-    height, width = image.shape[:2]
-    grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    denoised = cv2.fastNlMeansDenoising(grayscale, None, 10, 7, 21)
-    processed = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-    return processed, (width, height)
-
-
 def extract_ocr(processed: np.ndarray) -> tuple[str, float | None]:
     data: dict[str, Any] = pytesseract.image_to_data(
         processed,
         config="--oem 3 --psm 6",
         output_type=Output.DICT,
     )
-    words = []
+    lines: list[str] = []
+    current_line: list[str] = []
+    current_key: tuple[int, int, int] | None = None
     confidences = []
-    for text, confidence in zip(data["text"], data["conf"]):
+    for index, (text, confidence) in enumerate(zip(data["text"], data["conf"])):
         cleaned = text.strip()
         if cleaned:
-            words.append(cleaned)
+            key = (
+                data["block_num"][index],
+                data["par_num"][index],
+                data["line_num"][index],
+            )
+            if current_key is not None and key != current_key and current_line:
+                lines.append(" ".join(current_line))
+                current_line = []
+            current_key = key
+            current_line.append(cleaned)
         try:
             numeric_confidence = float(confidence)
         except (TypeError, ValueError):
             continue
         if numeric_confidence >= 0:
             confidences.append(numeric_confidence)
-    return " ".join(words), round(sum(confidences) / len(confidences), 2) if confidences else None
+    if current_line:
+        lines.append(" ".join(current_line))
+    return "\n".join(lines), round(sum(confidences) / len(confidences), 2) if confidences else None
+
+
+def extract_best_ocr(candidates: list[PreparedImage]) -> tuple[str, float | None, PreparedImage]:
+    results = []
+    for candidate in candidates:
+        text, confidence = extract_ocr(candidate.image)
+        quality = (confidence or 0.0) + min(len(text), 300) / 300
+        results.append((quality, text, confidence, candidate))
+    return max(results, key=lambda result: result[0])[1:]
 
 
 @app.post("/ocr")
@@ -98,8 +110,8 @@ async def extract_text(file: UploadFile = File(...)) -> dict[str, Any]:
     if not TESSERACT_PATH:
         raise HTTPException(status_code=503, detail="Tesseract OCR is not installed or configured.")
     try:
-        processed, (width, height) = preprocess_image(content)
-        text, confidence = extract_ocr(processed)
+        candidates, (width, height) = prepare_candidates(content)
+        text, confidence, selected = extract_best_ocr(candidates)
     except TesseractNotFoundError as exc:
         raise HTTPException(status_code=503, detail="Tesseract OCR could not be started.") from exc
     except (RuntimeError, ValueError) as exc:
@@ -112,7 +124,11 @@ async def extract_text(file: UploadFile = File(...)) -> dict[str, Any]:
             "width": width,
             "height": height,
             "bytes": len(content),
-            "preprocessing": "grayscale, denoise, Otsu threshold",
+            "originalSha256": hashlib.sha256(content).hexdigest(),
+            "preprocessing": selected.strategy,
+            "scale": selected.scale,
+            "deskewAngle": selected.deskew_angle,
+            "candidateCount": len(candidates),
             "averageConfidence": confidence,
         },
     }

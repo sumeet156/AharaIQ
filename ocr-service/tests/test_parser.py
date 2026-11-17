@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.parser.parser import parse_label
+from app.parser.nutrition import parse_nutrition
 
 client = TestClient(app)
 
@@ -24,6 +25,58 @@ def test_normalizes_milligrams_without_turning_missing_into_zero() -> None:
     assert fields["sodium"].normalizedValue == 0.45
     assert fields["sodium"].unit == "mg"
     assert "protein" in result.missingFields
+
+
+def test_keeps_total_saturated_and_trans_fat_distinct() -> None:
+    facts = parse_nutrition("Total Fat 33 g Saturated Fat 5 g Trans Fat 1 g")
+
+    assert [(fact.field, fact.value) for fact in facts] == [
+        ("saturated_fat", 5.0),
+        ("trans_fat", 1.0),
+        ("total_fat", 33.0),
+    ]
+
+
+def test_does_not_infer_total_fat_from_saturated_or_trans_fat() -> None:
+    assert [fact.field for fact in parse_nutrition("Saturated Fat 5 g")] == [
+        "saturated_fat"
+    ]
+    assert [fact.field for fact in parse_nutrition("Trans Fat 1 g")] == [
+        "trans_fat"
+    ]
+
+
+def test_keeps_added_and_total_sugars_distinct() -> None:
+    facts = parse_nutrition("Added Sugars 2 g Total Sugars 4 g")
+
+    assert [(fact.field, fact.value) for fact in facts] == [
+        ("added_sugars", 2.0),
+        ("total_sugars", 4.0),
+    ]
+
+
+def test_does_not_infer_total_sugars_from_added_sugars() -> None:
+    assert [fact.field for fact in parse_nutrition("Added Sugars 2 g")] == [
+        "added_sugars"
+    ]
+
+
+def test_ignores_isolated_noisy_fat_and_sugar_words() -> None:
+    facts = parse_nutrition("Ingredients contain fat and sugar; FATS are mentioned.")
+
+    assert facts == []
+
+
+def test_marks_duplicate_total_fat_values_for_review() -> None:
+    facts = parse_nutrition("Total Fat 33 g Total Fat 34 g")
+
+    assert len(facts) == 2
+    assert [fact.originalValue for fact in facts] == [
+        "Total Fat 33 g",
+        "Total Fat 34 g",
+    ]
+    assert all(fact.reviewRequired for fact in facts)
+    assert all(fact.confidence == "review" for fact in facts)
 
 
 def test_extracts_nested_ingredients_and_additives() -> None:
