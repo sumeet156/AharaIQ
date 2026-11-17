@@ -132,6 +132,20 @@ returned with line breaks where Tesseract detects separate text lines instead
 of being silently flattened. The result remains reviewable because preprocessing
 does not infer or correct nutrition values.
 
+The OCR response also includes optional evidence metadata for the selected
+candidate: median confidence, the proportion of low-confidence words, word and
+line counts, and conservatively detected nutrition rows with text confidence
+and image bounds. These fields help later review and table handling; they are
+heuristics and are not guarantees that a value is correct.
+
+Perspective correction is also an optional candidate. It is added only when a
+validated rectangular contour is detected; the original adaptive and Otsu
+candidates are always retained. `perspectiveConfidence` describes geometric
+detection confidence, not OCR accuracy. Nutrition-row bounds use
+`coordinateSpace: "selected_candidate_pixels"`, while returned perspective
+corners use `perspectiveCornerCoordinateSpace: "resized_source_pixels"`.
+Failed or ambiguous contour detection falls back to the original candidates.
+
 ### Label parser API
 
 The parser is intentionally separate from OCR so reviewed text can be parsed
