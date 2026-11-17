@@ -4,6 +4,7 @@ import {
   ArrowRight, BarChart3, Camera, Check, CircleAlert,
   Leaf, LoaderCircle, Search, ShieldCheck, Sparkles, Upload, X,
 } from "lucide-react";
+import { buildParsePayload, type OcrEvidence } from "./parsePayload";
 
 type OcrMetadata = {
   filename: string | null;
@@ -12,6 +13,7 @@ type OcrMetadata = {
   bytes: number;
   preprocessing: string;
   averageConfidence: number | null;
+  ocrEvidence?: OcrEvidence;
 };
 
 const OCR_ENDPOINT = `${import.meta.env.VITE_OCR_URL ?? "http://127.0.0.1:8000"}/ocr`;
@@ -50,6 +52,7 @@ function App() {
   const [searched, setSearched] = useState(false);
   const [image, setImage] = useState<string | null>(null);
   const [ocrText, setOcrText] = useState("");
+  const [originalOcrText, setOriginalOcrText] = useState("");
   const [confirmedText, setConfirmedText] = useState<string | null>(null);
   const [ocrMetadata, setOcrMetadata] = useState<OcrMetadata | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
@@ -130,6 +133,7 @@ function App() {
     }
     setImage(URL.createObjectURL(file));
     setOcrText("");
+    setOriginalOcrText("");
     setConfirmedText(null);
     setOcrMetadata(null);
     setOcrError(null);
@@ -148,6 +152,7 @@ function App() {
       if (request.status >= 200 && request.status < 300) {
         const result = JSON.parse(request.responseText) as { text: string; metadata: OcrMetadata };
         setOcrText(result.text);
+        setOriginalOcrText(result.text);
         setOcrMetadata(result.metadata);
         setUploadProgress(100);
       } else {
@@ -171,17 +176,35 @@ function App() {
     setConfirmedText(ocrText);
     setParseLoading(true);
     setParseError(null);
+    const textWasEdited = ocrText !== originalOcrText;
     try {
       const response = await fetch(PARSE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawText: ocrText, source: "reviewed" }),
+        body: JSON.stringify(
+          buildParsePayload(ocrText, originalOcrText, ocrMetadata?.ocrEvidence),
+        ),
       });
       if (!response.ok) {
         const error = await response.json() as { detail?: string };
         throw new Error(error.detail ?? "The label parser returned an error.");
       }
-      setParsedResult(await response.json() as ParsedResult);
+      const parsed = await response.json() as ParsedResult;
+      if (textWasEdited) {
+        parsed.reviewWarnings = [
+          ...parsed.reviewWarnings,
+          "Reviewed OCR text differs from the original; coordinate table evidence was not applied. Numeric results require manual review.",
+        ];
+        parsed.nutritionFacts = parsed.nutritionFacts.map((fact) => ({
+          ...fact,
+          confidence: "review",
+          reviewRequired: true,
+        }));
+        if (parsed.nutritionFacts.length > 0) {
+          parsed.parsingStatus = "needs_review";
+        }
+      }
+      setParsedResult(parsed);
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "Could not parse the reviewed text.");
     } finally {
@@ -226,7 +249,7 @@ function App() {
             <button className="action-card" onClick={() => document.querySelector<HTMLInputElement>(".search-box input")?.focus()}><span className="action-icon green-bg"><Search /></span><span><b>Look up a product</b><small>Search by barcode</small></span><ArrowRight /></button>
           </div>
           <input id="upload" hidden type="file" accept="image/jpeg,image/png" onChange={(e) => onImage(e.target.files?.[0])} />
-          {image && <div className="upload-preview"><img src={image} alt="Selected food label" /><div><b>{ocrLoading ? "Reading label…" : "Label uploaded"}</b><p>{ocrLoading ? `Uploading and extracting text (${uploadProgress}%)` : "Review the extracted text below."}</p></div><button onClick={() => { setImage(null); setOcrText(""); setConfirmedText(null); setOcrMetadata(null); setOcrError(null); setParsedResult(null); setParseError(null); }} aria-label="Remove image"><X size={18} /></button></div>}
+          {image && <div className="upload-preview"><img src={image} alt="Selected food label" /><div><b>{ocrLoading ? "Reading label…" : "Label uploaded"}</b><p>{ocrLoading ? `Uploading and extracting text (${uploadProgress}%)` : "Review the extracted text below."}</p></div><button onClick={() => { setImage(null); setOcrText(""); setOriginalOcrText(""); setConfirmedText(null); setOcrMetadata(null); setOcrError(null); setParsedResult(null); setParseError(null); }} aria-label="Remove image"><X size={18} /></button></div>}
           {ocrError && <div className="ocr-error"><CircleAlert size={17} />{ocrError}</div>}
         </section>
 

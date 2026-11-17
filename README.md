@@ -163,6 +163,49 @@ missing fields, review warnings, and parsing status. Known additive metadata is
 maintained in `ocr-service/app/data/additives.json`; unknown INS codes remain
 unknown and are not labelled harmful.
 
+### Table-aware OCR evidence
+
+The `/ocr` response includes `metadata.ocrEvidence` for the selected OCR
+candidate. It contains line and word text, confidence and pixel coordinates.
+Clients that retain this metadata may send it back to `/parse` as optional
+`ocrEvidence`:
+
+```json
+{
+  "rawText": "Protein 10 g",
+  "source": "ocr",
+  "ocrEvidence": {
+    "lines": [
+      {
+        "text": "Protein 10 g",
+        "words": [
+          {
+            "text": "Protein",
+            "confidence": 91.0,
+            "left": 10,
+            "top": 20,
+            "width": 70,
+            "height": 18
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+When at least two nutrient rows and reliable numeric alignment are detected,
+table-derived values retain their column type, serving basis, source text,
+coordinates and review warnings. Missing or ambiguous serving headers never
+become an inferred `per_100_g` or `per_serving` value. Without `ocrEvidence`,
+the existing flattened-text parser remains the fallback.
+
+The React review flow preserves the original OCR text separately from the
+editable reviewed text. It forwards `ocrEvidence` only when the reviewed text
+is unchanged. If the user edits the OCR text, the frontend intentionally omits
+coordinate evidence and marks returned numeric results for manual review,
+because original word coordinates may no longer correspond to the edited text.
+
 The UI labels OCR text as **Unreviewed OCR**. Parsing starts only after the user
 confirms or edits the text, and the resulting cards are labelled as based on
 reviewed text.

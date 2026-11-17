@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:payload": "node --experimental-strip-types scripts/test-parse-payload.mjs"
   },
   "dependencies": {
     "html5-qrcode": "^2.3.8",
