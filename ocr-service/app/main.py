@@ -368,4 +368,4 @@ async def extract_text(file: UploadFile = File(...)) -> dict[str, Any]:
 
 @app.post("/parse", response_model=ParseResponse)
 def parse_text(request: ParseRequest) -> ParseResponse:
-    return parse_label(request.rawText, request.source)
+    return parse_label(request.rawText, request.source, request.ocrEvidence)
