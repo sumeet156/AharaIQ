@@ -132,6 +132,20 @@ returned with line breaks where Tesseract detects separate text lines instead
 of being silently flattened. The result remains reviewable because preprocessing
 does not infer or correct nutrition values.
 
+The OCR response also includes optional evidence metadata for the selected
+candidate: median confidence, the proportion of low-confidence words, word and
+line counts, and conservatively detected nutrition rows with text confidence
+and image bounds. These fields help later review and table handling; they are
+heuristics and are not guarantees that a value is correct.
+
+Perspective correction is also an optional candidate. It is added only when a
+validated rectangular contour is detected; the original adaptive and Otsu
+candidates are always retained. `perspectiveConfidence` describes geometric
+detection confidence, not OCR accuracy. Nutrition-row bounds use
+`coordinateSpace: "selected_candidate_pixels"`, while returned perspective
+corners use `perspectiveCornerCoordinateSpace: "resized_source_pixels"`.
+Failed or ambiguous contour detection falls back to the original candidates.
+
 ### Label parser API
 
 The parser is intentionally separate from OCR so reviewed text can be parsed
@@ -148,6 +162,49 @@ normalized values, ingredient order, additive matches, allergen categories,
 missing fields, review warnings, and parsing status. Known additive metadata is
 maintained in `ocr-service/app/data/additives.json`; unknown INS codes remain
 unknown and are not labelled harmful.
+
+### Table-aware OCR evidence
+
+The `/ocr` response includes `metadata.ocrEvidence` for the selected OCR
+candidate. It contains line and word text, confidence and pixel coordinates.
+Clients that retain this metadata may send it back to `/parse` as optional
+`ocrEvidence`:
+
+```json
+{
+  "rawText": "Protein 10 g",
+  "source": "ocr",
+  "ocrEvidence": {
+    "lines": [
+      {
+        "text": "Protein 10 g",
+        "words": [
+          {
+            "text": "Protein",
+            "confidence": 91.0,
+            "left": 10,
+            "top": 20,
+            "width": 70,
+            "height": 18
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+When at least two nutrient rows and reliable numeric alignment are detected,
+table-derived values retain their column type, serving basis, source text,
+coordinates and review warnings. Missing or ambiguous serving headers never
+become an inferred `per_100_g` or `per_serving` value. Without `ocrEvidence`,
+the existing flattened-text parser remains the fallback.
+
+The React review flow preserves the original OCR text separately from the
+editable reviewed text. It forwards `ocrEvidence` only when the reviewed text
+is unchanged. If the user edits the OCR text, the frontend intentionally omits
+coordinate evidence and marks returned numeric results for manual review,
+because original word coordinates may no longer correspond to the edited text.
 
 The UI labels OCR text as **Unreviewed OCR**. Parsing starts only after the user
 confirms or edits the text, and the resulting cards are labelled as based on

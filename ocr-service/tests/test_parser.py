@@ -114,3 +114,49 @@ def test_parse_endpoint_rejects_empty_text_and_returns_structured_data() -> None
     assert body["rawText"] == "Protein 5 g"
     assert body["source"] == "reviewed"
     assert body["nutritionFacts"][0]["field"] == "protein"
+
+
+def test_parse_endpoint_uses_optional_ocr_evidence_when_available() -> None:
+    evidence = {
+        "lines": [
+            {
+                "text": "Nutrients Per 100 g",
+                "words": [
+                    {"text": "Nutrients", "confidence": 95, "left": 10, "top": 10, "width": 70, "height": 20},
+                    {"text": "Per", "confidence": 95, "left": 180, "top": 10, "width": 24, "height": 20},
+                    {"text": "100", "confidence": 95, "left": 220, "top": 10, "width": 30, "height": 20},
+                    {"text": "g", "confidence": 95, "left": 255, "top": 10, "width": 10, "height": 20},
+                ],
+            },
+            {
+                "text": "Protein 10 g",
+                "words": [
+                    {"text": "Protein", "confidence": 95, "left": 10, "top": 50, "width": 60, "height": 20},
+                    {"text": "10", "confidence": 95, "left": 220, "top": 50, "width": 20, "height": 20},
+                    {"text": "g", "confidence": 95, "left": 250, "top": 50, "width": 10, "height": 20},
+                ],
+            },
+            {
+                "text": "Sodium 643 mg",
+                "words": [
+                    {"text": "Sodium", "confidence": 95, "left": 10, "top": 90, "width": 60, "height": 20},
+                    {"text": "643", "confidence": 95, "left": 220, "top": 90, "width": 30, "height": 20},
+                    {"text": "mg", "confidence": 95, "left": 255, "top": 90, "width": 20, "height": 20},
+                ],
+            },
+        ]
+    }
+
+    response = client.post(
+        "/parse",
+        json={
+            "rawText": "Protein 10 g Sodium 643 mg",
+            "source": "ocr",
+            "ocrEvidence": evidence,
+        },
+    )
+
+    assert response.status_code == 200
+    fields = {fact["field"]: fact for fact in response.json()["nutritionFacts"]}
+    assert fields["protein"]["basis"] == "per_100_g"
+    assert fields["sodium"]["sourceCoordinates"] is not None

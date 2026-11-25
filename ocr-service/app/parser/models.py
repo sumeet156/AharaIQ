@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class ParseRequest(BaseModel):
     rawText: str = Field(min_length=1, max_length=50_000)
     source: Literal["ocr", "reviewed"] = "reviewed"
+    ocrEvidence: dict[str, Any] | None = None
 
 
 class NutritionFact(BaseModel):
@@ -18,6 +19,11 @@ class NutritionFact(BaseModel):
     basis: str | None
     confidence: Literal["high", "medium", "review"]
     reviewRequired: bool
+    columnType: str | None = None
+    ocrConfidence: float | None = None
+    sourceText: str | None = None
+    sourceCoordinates: dict[str, int] | None = None
+    ambiguityWarnings: list[str] = Field(default_factory=list)
 
 
 class Ingredient(BaseModel):
